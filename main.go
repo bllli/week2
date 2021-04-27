@@ -11,14 +11,14 @@ import (
 
 var globalDB *gorm.DB
 
-
 type Product struct {
 	gorm.Model
-	Code string
+	Code  string
 	Price uint
 }
 
 // daoGetProduct
+// dao层wrap包装错误，抛到上一层
 func daoGetProduct(code string) (*Product, error) {
 	var p Product
 	res := globalDB.First(&p, "code = ?", code)
@@ -28,6 +28,8 @@ func daoGetProduct(code string) (*Product, error) {
 	return &p, nil
 }
 
+// apiGetProduct
+// 获取指定code产品
 func apiGetProduct(c *gin.Context) {
 	code := c.Query("code")
 	if code == "" {
@@ -37,11 +39,13 @@ func apiGetProduct(c *gin.Context) {
 
 	product, err := daoGetProduct(code)
 	if err != nil {
+		// 可以识别根因 根据特定业务逻辑处理
+		// 如找不到时返回404 其他错误返回500
 		if errors.Cause(err) == gorm.ErrRecordNotFound {
 			writeFailMsgCode(c, 404, "not found")
 			return
 		} else {
-			//
+			// 未识别的错误，可以把堆栈打log
 			fmt.Printf("apiGetProduct error: \n%+v\n", err)
 			writeFailMsgCode(c, 500, "error")
 			return
@@ -51,10 +55,28 @@ func apiGetProduct(c *gin.Context) {
 	return
 }
 
-type apiProductCreateOrUpdateReq struct {
-	Code string `json:"code"`
-	Price uint `json:"price"`
+// apiRecommendOneProduct
+// 推荐一件产品
+func apiRecommendOneProduct(c *gin.Context) {
+	recommendsProductCode := "NICE" // mock
+	product, err := daoGetProduct(recommendsProductCode)
+	if err != nil {
+		// 不care错误 降级处理
+		writeSuccessData(c, &Product{
+			Code:  "COOL",
+			Price: 100,
+		})
+		return
+	}
+	writeSuccessData(c, product)
+	return
 }
+
+type apiProductCreateOrUpdateReq struct {
+	Code  string `json:"code"`
+	Price uint   `json:"price"`
+}
+
 func apiCreateOrUpdateProduct(c *gin.Context) {
 	var req apiProductCreateOrUpdateReq
 	err := c.ShouldBindJSON(&req)
@@ -79,8 +101,7 @@ func apiCreateOrUpdateProduct(c *gin.Context) {
 	return
 }
 
-
-func resetAndInitDB() {
+func resetDB() {
 	dbFile := "bllli.db"
 	_ = os.Remove(dbFile)
 	db, err := gorm.Open(sqlite.Open(dbFile), &gorm.Config{})
@@ -100,7 +121,7 @@ func writeFailMsgCode(c *gin.Context, code int, msg string) {
 	c.JSON(code, gin.H{
 		"status": gin.H{
 			"code": code,
-			"msg": msg,
+			"msg":  msg,
 		},
 	})
 }
@@ -109,16 +130,17 @@ func writeSuccessData(c *gin.Context, data interface{}) {
 	c.JSON(200, gin.H{
 		"status": gin.H{
 			"code": 200,
-			"msg": "ok",
+			"msg":  "ok",
 		},
 		"data": data,
 	})
 }
 
 func main() {
-	resetAndInitDB()
+	resetDB()
 	r := gin.Default()
 	r.GET("/product/get", apiGetProduct)
 	r.POST("/product/update", apiCreateOrUpdateProduct)
+	r.GET("/product/recommend", apiRecommendOneProduct)
 	r.Run() // listen and serve on 0.0.0.0:8080
 }
